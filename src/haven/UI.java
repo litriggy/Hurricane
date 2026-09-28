@@ -379,6 +379,7 @@ public class UI {
     }
 
     public void tick() {
+	bridge.tick();
 	double now = Utils.rtime();
 	double delta = now - lasttick;
 	lasttick = now;
@@ -954,6 +955,7 @@ public class UI {
     }
 
     public void destroy() {
+	bridge.close();
 	queue.drain();
 	synchronized(this) {
 	    root.destroy();
@@ -1113,6 +1115,10 @@ public class UI {
 	scale = Math.max(Math.min(scale, maxscale), 1.0);
 	return(scale);
     }
+
+    private final haven.bridge.GameBridge bridge = new haven.bridge.GameBridge(this);
+
+    public void startBridge() { bridge.start(); }
 
 	public void setGUI(GameUI gui) {
 		synchronized (guiLock) {

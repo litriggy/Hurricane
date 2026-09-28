@@ -101,6 +101,7 @@ public abstract class UILoop implements Console.Directory {
 	if(prevui != null) {
 	    prevui.destroy();
 	}
+	newui.startBridge();
 	return(newui);
     }
 

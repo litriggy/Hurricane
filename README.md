@@ -1,5 +1,9 @@
 # Hurricane Client
 
+This fork includes an optional local MCP bridge for OpenCode. See
+[MCP setup and tools](mcp/README.md) for building the modified client and connecting
+OpenCode. The bridge is disabled by default.
+
 This is just another custom client you can use to play the wonderful game,
 Haven & Hearth. This client is built on top of the "Vanilla" Client, and
 does not depend on any other custom clients.

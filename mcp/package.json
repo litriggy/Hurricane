@@ -1,0 +1,21 @@
+{
+  "name": "hurricane-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "check": "tsc --noEmit && biome check .",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "ky": "2.1.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.8",
+    "@types/bun": "1.3.11",
+    "typescript": "5.9.3"
+  }
+}

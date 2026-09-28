@@ -17,7 +17,7 @@ public class Pathfinder implements Runnable {
     private MCache map;
     private MapView mv;
     private Coord dest;
-    public boolean terminate = false;
+    public volatile boolean terminate = false;
     public boolean moveinterupted = false;
     private int meshid;
     private int clickb;
