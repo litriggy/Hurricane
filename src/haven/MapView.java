@@ -58,6 +58,26 @@ public class MapView extends PView implements DTarget, Console.Directory, PFList
     private Collection<Delayed> delayed2 = new LinkedList<Delayed>();
     public Camera camera = restorecam();
     private Loader.Future<Plob> placing = null;
+
+    public Plob placementPreview() {
+	return placing != null && placing.done() ? placing.get() : null;
+    }
+
+    /** World-space placement must not depend on a rendered mouse hit-test. UI thread only. */
+    public boolean positionPlacement(Coord2d position, double angle) {
+	Plob preview = placementPreview();
+	if(preview == null) return false;
+	preview.adjustseq++;
+	preview.pinned = true;
+	preview.lastmc = currentCursorLocation != null ? currentCursorLocation : ui.mc.sub(rootpos());
+	preview.move(position, angle);
+	return true;
+    }
+
+    public boolean placementPinned() {
+	Plob preview = placementPreview();
+	return preview != null && preview.pinned;
+    }
     private Grabber grab;
     private Selector selection;
     private Coord3f camoff = new Coord3f(Coord3f.o);
@@ -2134,6 +2154,8 @@ public class MapView extends PView implements DTarget, Console.Directory, PFList
     public class Plob extends Gob {
 	public PlobAdjust adjust = new StdPlace();
 	Coord lastmc = null;
+	private long adjustseq;
+	private boolean pinned;
 	RenderTree.Slot slot;
 
 	private Plob(Indir<Resource> res, Message sdt) {
@@ -2164,13 +2186,16 @@ public class MapView extends PView implements DTarget, Console.Directory, PFList
 
 	private class Adjust extends Maptest {
 	    int modflags;
+	    private final long sequence;
 	    
 	    Adjust(Coord c, int modflags) {
 		super(c);
 		this.modflags = modflags;
+		this.sequence = ++adjustseq;
 	    }
 	    
 	    public void hit(Coord pc, Coord2d mc) {
+		if(pinned || sequence != adjustseq) return;
 		adjust.adjust(Plob.this, pc, mc, modflags);
 		lastmc = pc;
 	    }
@@ -2548,6 +2573,7 @@ public class MapView extends PView implements DTarget, Console.Directory, PFList
 	} else if((placing_l != null) && placing_l.done()) {
 	    Plob placing = placing_l.get();
 	    if((placing.lastmc == null) || !placing.lastmc.equals(ev.c)) {
+		placing.pinned = false;
 		placing.new Adjust(ev.c, ui.modflags()).run();
 	    }
 	}  else if (ui.modshift && ui.modctrl) {

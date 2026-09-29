@@ -160,6 +160,8 @@ public class Button extends SIWidget {
 	redraw();
     }
 
+    public boolean disabled() { return dis; }
+
     public void click() {
 	if(action != null)
 	    action.run();

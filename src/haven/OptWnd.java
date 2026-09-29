@@ -5171,6 +5171,15 @@ public class OptWnd extends Window {
 	y = main.add(videoButton = new PButton(UI.scale(200), "Video settings", 'v', () -> new VideoPanel(ui, main), "Video Settings"), 0, y).pos("bl").adds(0, 5).y;
 	y = main.add(audioButton = new PButton(UI.scale(200), "Audio settings", 'a', () -> new AudioPanel(ui, main), "Audio Settings"), 0, y).pos("bl").adds(0, 5).y;
 	y = main.add(keybindButton = new PButton(UI.scale(200), "Keybindings", 'k', () -> new BindingPanel(main), "Keybindings (Hotkeys)"), 0, y).pos("bl").adds(0, 5).y;
+	y = main.add(new PButton(UI.scale(200), "MCP / OpenCode", -1, () -> new Panel() {
+	    {
+		add(new haven.bridge.BridgeSettingsPanel(() -> OptWnd.this.ui.gameBridge(), () -> {
+		    chpanel(main);
+		    OptWnd.this.cap = "Options            ";
+		}), Coord.z);
+		pack();
+	    }
+	}, "MCP / OpenCode"), 0, y).pos("bl").adds(0, 5).y;
 	y += UI.scale(20);
 
 	advancedSettings = add(new Panel());

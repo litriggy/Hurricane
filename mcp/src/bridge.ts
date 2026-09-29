@@ -1,5 +1,6 @@
 import ky from "ky";
 import { z } from "zod";
+import type { PlayMemory } from "./memory";
 
 const configuration = z.object({
   HURRICANE_BRIDGE_TOKEN: z
@@ -17,7 +18,7 @@ const response = z.discriminatedUnion("ok", [
   }),
 ]);
 
-export function createBridge(environment: NodeJS.ProcessEnv) {
+export function createBridge(environment: NodeJS.ProcessEnv, memory?: PlayMemory) {
   const config = configuration.parse(environment);
   const http = ky.create({
     baseUrl: `http://127.0.0.1:${config.HURRICANE_BRIDGE_PORT}/`,
@@ -27,18 +28,33 @@ export function createBridge(environment: NodeJS.ProcessEnv) {
     redirect: "error",
     throwHttpErrors: false,
   });
-  return async (method: string, args: Readonly<Record<string, string | number>>) => {
-    const res = await http.post("api", { json: { method, arguments: args } });
-    const data = response.parse(await res.json());
-    if (!res.ok && data.ok) throw new BridgeProtocolError();
-    switch (data.ok) {
-      case true:
-        return { content: [{ type: "text" as const, text: JSON.stringify(data.result) }] };
-      case false:
-        return {
-          isError: true,
-          content: [{ type: "text" as const, text: JSON.stringify(data.error) }],
-        };
+  return async (method: string, args: Readonly<Record<string, unknown>>) => {
+    const event = memory?.begin(method, args);
+    try {
+      const res = await http.post("api", { json: { method, arguments: args } });
+      const data = response.parse(await res.json());
+      if (!res.ok && data.ok) throw new BridgeProtocolError();
+      if (event !== undefined)
+        memory?.finish(
+          event,
+          data.ok ? "response" : data.error.code === "ui_timeout" ? "unknown" : "rejected",
+          data,
+        );
+      switch (data.ok) {
+        case true:
+          return { content: [{ type: "text" as const, text: JSON.stringify(data.result) }] };
+        case false:
+          return {
+            isError: true,
+            content: [{ type: "text" as const, text: JSON.stringify(data.error) }],
+          };
+      }
+    } catch (error) {
+      if (event !== undefined)
+        memory?.finish(event, "unknown", {
+          reason: "Request or recording failed; reobserve before retrying.",
+        });
+      throw error;
     }
   };
 }

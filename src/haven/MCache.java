@@ -983,6 +983,14 @@ public class MCache implements MapSource {
 	return(getgrid(tc.div(cmaps)));
     }
 
+    /** Inspect cached terrain without requesting an unloaded grid from the server. */
+    public Grid loadedgrid(Coord gc) {
+        synchronized(grids) {
+            Grid grid = grids.get(gc);
+            return (grid == null || grid.removed) ? null : grid;
+        }
+    }
+
     public int gettile(Coord tc) {
 	Grid g = getgridt(tc);
 	return(g.gettile(tc.sub(g.ul)));

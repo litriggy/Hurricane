@@ -1119,6 +1119,7 @@ public class UI {
     private final haven.bridge.GameBridge bridge = new haven.bridge.GameBridge(this);
 
     public void startBridge() { bridge.start(); }
+    public haven.bridge.GameBridge gameBridge() { return bridge; }
 
 	public void setGUI(GameUI gui) {
 		synchronized (guiLock) {

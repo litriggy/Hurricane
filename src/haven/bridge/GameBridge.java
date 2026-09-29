@@ -2,9 +2,14 @@ package haven.bridge;
 
 import haven.*;
 import java.io.IOException;
+import java.net.BindException;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
 import org.json.JSONObject;
 
 /** One bridge per UI lifetime, started on the first UI tick after the old UI is destroyed. */
@@ -13,41 +18,125 @@ public final class GameBridge implements AutoCloseable {
     private final ArrayBlockingQueue<Runnable> pending = new ArrayBlockingQueue<>(32);
     private BridgeServer server;
     private boolean attempted;
-    private volatile boolean enabled;
+    private volatile boolean started;
+    private boolean closed;
+    private final Preferences preferences;
+    private final Map<String, String> environment;
+    private final String token;
+    private BridgeSettings settings;
+    private String lastError;
     private GameUI gui;
     private BridgeActions actions;
+    private BridgeWidgets widgets;
+    private BridgeItems items;
+    private BridgeGameplay gameplay;
     private String sessionId;
 
-    public GameBridge(UI ui) { this.ui = ui; }
+    public GameBridge(UI ui) { this(ui, Utils.prefs(), System.getenv()); }
 
-    public void start() { enabled = true; }
+    GameBridge(UI ui, Preferences preferences, Map<String, String> environment) {
+        this.ui = ui;
+        this.preferences = preferences;
+        this.environment = Map.copyOf(environment);
+        this.token = environment.get("HURRICANE_BRIDGE_TOKEN");
+        try { settings = BridgeSettings.load(preferences, environment); }
+        catch (RuntimeException e) {
+            settings = BridgeSettings.validated(false, "18711");
+            lastError = "Saved bridge settings could not be read. Apply new settings to recover.";
+        }
+    }
+
+    public void start() { if (!closed) started = true; }
+
+    public BridgeSettings settings() { return settings; }
+    public BridgeSettings launcherDefaults() { return BridgeSettings.defaults(environment); }
+    public String lastError() { return lastError; }
+    public boolean tokenConfigured() { return token != null && token.matches("[A-Za-z0-9_-]{32,}"); }
+    public String statusText() {
+        if (closed) return "Stopped (client UI closed)";
+        if (server != null) return "Listening on 127.0.0.1:" + server.port();
+        if (!settings.enabled) return "Disabled";
+        return attempted ? "Not running" : "Waiting for client UI";
+    }
+    public String activityText() {
+        if (server == null || server.secondsSinceRequest() < 0) return "No authenticated requests yet";
+        return server.requests() + " authenticated requests; last " + server.secondsSinceRequest() + "s ago";
+    }
+    public boolean inGame() { return ui.gui != null && ui.gui.map != null && ui.gui.map.player() != null; }
+
+    /** UI thread only. Bind/save first so a bad port cannot tear down a working connection. */
+    public String applySettings(boolean enabled, String port) {
+        if (closed || !started) return lastError = "The client UI is not ready. Open this panel again.";
+        BridgeServer replacement = null;
+        try {
+            BridgeSettings next = BridgeSettings.validated(enabled, port);
+            boolean replace = enabled && (server == null || server.port() != Integer.parseInt(next.port));
+            if (replace) replacement = listen(next);
+            next.save(preferences);
+            if (!enabled || replace) {
+                if (actions != null) actions.cancel();
+                if (gameplay != null) gameplay.releaseCombat();
+                BridgeServer previous = server;
+                server = replacement;
+                replacement = null;
+                if (previous != null) previous.close();
+                if (server == null) cancelPending();
+                resetAccess(ui.gui);
+            }
+            settings = next;
+            attempted = true;
+            lastError = null;
+            if (replace) System.err.printf("Hurricane bridge listening on 127.0.0.1:%d%n", server.port());
+            return null;
+        } catch (IOException | IllegalArgumentException | BackingStoreException | SecurityException e) {
+            if (replacement != null) replacement.close();
+            return lastError = failure(e);
+        }
+    }
+
+    private BridgeServer listen(BridgeSettings settings) throws IOException {
+        if (!tokenConfigured()) throw new IllegalArgumentException("A valid HURRICANE_BRIDGE_TOKEN is required at launch.");
+        return new BridgeServer(new BridgeServer.Config(Integer.parseInt(settings.port), token), this::execute, task -> {
+            if (!pending.offer(task)) throw new RejectedExecutionException();
+        });
+    }
+
+    private static String failure(Exception error) {
+        if (error instanceof BindException) return "Port is already in use. Choose another port and Apply.";
+        if (error instanceof IllegalArgumentException) return error.getMessage();
+        if (error instanceof BackingStoreException || error instanceof SecurityException)
+            return "Could not save bridge settings. Existing settings were kept.";
+        return "Could not open the local bridge. Check the port and Apply again.";
+    }
+
+    private void resetAccess(GameUI next) {
+        gui = next;
+        sessionId = UUID.randomUUID().toString();
+        actions = gui == null ? null : new BridgeActions(gui);
+        widgets = gui == null ? null : new BridgeWidgets(gui);
+        items = gui == null ? null : new BridgeItems(gui, widgets);
+        gameplay = gui == null ? null : new BridgeGameplay(gui, widgets);
+    }
 
     public void tick() {
-        if (!enabled) return;
+        if (!started || closed) return;
         if (!attempted) {
             attempted = true;
-            String token = System.getenv("HURRICANE_BRIDGE_TOKEN");
-            if (token != null) {
+            if (settings.enabled) {
                 try {
-                    String value = System.getenv("HURRICANE_BRIDGE_PORT");
-                    int port = value == null ? 18711 : Integer.parseInt(value);
-                    if (port < 1024 || port > 65535)
-                        throw new IllegalArgumentException("Bridge port must be between 1024 and 65535");
-                    server = new BridgeServer(new BridgeServer.Config(port, token), this::execute, task -> {
-                        if (!pending.offer(task)) throw new RejectedExecutionException();
-                    });
+                    settings = BridgeSettings.validated(true, settings.port);
+                    server = listen(settings);
                     System.err.printf("Hurricane bridge listening on 127.0.0.1:%d%n", server.port());
                 } catch (IOException | IllegalArgumentException e) {
-                    new Warning(e, "Hurricane bridge could not start").issue();
+                    lastError = failure(e);
+                    System.err.println("Hurricane bridge: " + lastError);
                 }
             }
         }
         if (server == null) return;
         if (gui != ui.gui) {
             if (actions != null) actions.cancel();
-            gui = ui.gui;
-            sessionId = UUID.randomUUID().toString();
-            actions = gui == null ? null : new BridgeActions(gui);
+            resetAccess(ui.gui);
         }
         if (actions != null) actions.tick();
         for (int i = 0; i < 8; i++) {
@@ -61,7 +150,7 @@ public final class GameBridge implements AutoCloseable {
         boolean ready = gui != null && gui.map != null && gui.map.player() != null;
         if (!ready) {
             if (request.method().equals("get_state"))
-                return success(new JSONObject().put("connected", false));
+                return success(new JSONObject().put("connected", false).put("bridge_version", "0.4.0"));
             return BridgeServer.error("not_in_game", "Log in and enter the world first");
         }
         JSONObject args = request.arguments();
@@ -70,12 +159,33 @@ public final class GameBridge implements AutoCloseable {
         try {
             JSONObject result = switch (request.method()) {
                 case "get_state" -> BridgeSnapshot.state(gui).put("action", actions.current());
-                case "get_inventory" -> BridgeSnapshot.inventory(gui);
+                case "get_inventory" -> items.snapshot();
+                case "get_map" -> BridgeMap.snapshot(gui.map.glob.map, gui.map.player().rc, args);
+                case "get_quests" -> BridgeSnapshot.quests(gui);
+                case "get_skills" -> BridgeSkills.snapshot(gui.chrwdg, widgets);
+                case "skill_action" -> BridgeSkills.action(gui.chrwdg, widgets, args);
+                case "get_ui" -> widgets.snapshot(args);
+                case "ui_action" -> widgets.action(args);
+                case "widget_message" -> widgets.message(args);
+                case "list_actions" -> gameplay.listActions(args);
+                case "use_action" -> gameplay.useAction(args);
+                case "get_crafting" -> gameplay.crafting();
+                case "craft" -> gameplay.craft(args);
+                case "get_combat" -> gameplay.combat();
+                case "combat_action" -> gameplay.combatAction(args);
+                case "select_quest" -> gameplay.selectQuest(args);
+                case "quest_option" -> gameplay.questOption(args);
+                case "item_action" -> items.action(args);
+                case "inventory_drop" -> items.inventoryDrop(args);
+                case "equipment_drop" -> items.equipmentDrop(args);
+                case "open_window" -> BridgeWindows.open(gui, args.getString("window"));
                 case "list_nearby" -> BridgeSnapshot.nearby(gui, args);
                 case "move_to" -> actions.move(args);
                 case "interact" -> actions.interact(args);
+                case "map_action" -> actions.mapAction(args);
                 case "choose_option" -> actions.choose(args);
-                case "stop" -> actions.stop();
+                case "cancel_menu" -> actions.cancelMenu(args);
+                case "stop" -> { gameplay.releaseCombat(); yield actions.stop(); }
                 default -> throw new IllegalArgumentException("Unknown bridge method");
             };
             if (result.has("ok")) return result;
@@ -90,8 +200,17 @@ public final class GameBridge implements AutoCloseable {
     }
 
     public void close() {
+        closed = true;
+        started = false;
         if (actions != null) actions.cancel();
+        if (gameplay != null) gameplay.releaseCombat();
         if (server != null) server.close();
-        pending.clear();
+        server = null;
+        cancelPending();
+    }
+
+    private void cancelPending() {
+        Runnable task;
+        while ((task = pending.poll()) != null) if (task instanceof Future<?> future) future.cancel(false);
     }
 }

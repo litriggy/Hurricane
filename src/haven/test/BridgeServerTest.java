@@ -65,6 +65,34 @@ public final class BridgeServerTest {
             }
             check(rejected, "invalid coordinate rejected");
         }
+        check(BridgeRequest.parse(new JSONObject("{\"method\":\"get_quests\",\"arguments\":{}}"))
+            .method().equals("get_quests"), "quest reads require no session or arguments");
+        boolean extraQuestArgument = false;
+        try {
+            BridgeRequest.parse(new JSONObject("{\"method\":\"get_quests\",\"arguments\":{\"quest_id\":12}}"));
+        } catch (IllegalArgumentException e) {
+            extraQuestArgument = true;
+        }
+        check(extraQuestArgument, "quest reads cannot select a different quest");
+        for (String window : new String[] {"character", "quests", "inventory", "equipment", "map"}) {
+            JSONObject open = new JSONObject().put("method", "open_window")
+                .put("arguments", new JSONObject().put("session_id", "s").put("window", window));
+            check(BridgeRequest.parse(open).method().equals("open_window"), "named window accepted: " + window);
+        }
+        for (String arguments : new String[] {
+            "{\"window\":\"quests\"}",
+            "{\"session_id\":\"s\",\"window\":\"arbitrary-widget\"}",
+            "{\"session_id\":\"s\",\"window\":12}",
+            "{\"session_id\":\"s\",\"window\":\"quests\",\"widget_id\":12}"
+        }) {
+            boolean rejected = false;
+            try {
+                BridgeRequest.parse(new JSONObject("{\"method\":\"open_window\",\"arguments\":" + arguments + "}"));
+            } catch (IllegalArgumentException e) {
+                rejected = true;
+            }
+            check(rejected, "window command requires a session and a supported name, with no extra fields");
+        }
         System.out.println("BridgeServerTest: " + checks + " checks passed");
     }
 

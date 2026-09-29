@@ -5,3 +5,6 @@
 
 # Batch scripts must use CRLF line endings on Windows
 *.bat text eol=crlf
+
+# Match the MCP formatter on Windows as well as Unix.
+/mcp/** text eol=lf

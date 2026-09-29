@@ -60,6 +60,11 @@ public class ISBox extends Widget implements DTarget {
     private Button take;
     private int rem;
     private int av;
+    private int bi;
+
+    public Indir<Resource> resource() { return res; }
+    public int[] counts() { return new int[] {rem, av, bi}; }
+    public String label() { return label.text; }
 
     @RName("isbox")
     public static class $_ implements Factory {
@@ -74,6 +79,9 @@ public class ISBox extends Widget implements DTarget {
     }
 
     private void setlabel(int rem, int av, int bi) {
+	this.rem = rem;
+	this.av = av;
+	this.bi = bi;
 	if(bi < 0)
 	    label = lf.renderf("%d/%d", rem, av);
 	else

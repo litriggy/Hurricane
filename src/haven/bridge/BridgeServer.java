@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -31,6 +32,8 @@ public final class BridgeServer implements AutoCloseable {
     private final Function<BridgeRequest, JSONObject> handler;
     private final byte[] authorization;
     private volatile boolean closed;
+    private final AtomicLong requests = new AtomicLong();
+    private volatile long lastRequest;
 
     public BridgeServer(Config config, Function<BridgeRequest, JSONObject> handler, Executor dispatcher) throws IOException {
         String token = config.token;
@@ -51,6 +54,11 @@ public final class BridgeServer implements AutoCloseable {
     }
 
     public int port() { return server.getAddress().getPort(); }
+    public long requests() { return requests.get(); }
+    public long secondsSinceRequest() {
+        long last = lastRequest;
+        return last == 0 ? -1 : Math.max(0, (System.nanoTime() - last) / 1_000_000_000L);
+    }
 
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
@@ -88,6 +96,8 @@ public final class BridgeServer implements AutoCloseable {
                 reply(exchange, 400, error("invalid_request", e.getMessage()));
                 return;
             }
+            requests.incrementAndGet();
+            lastRequest = System.nanoTime();
             FutureTask<JSONObject> task = new FutureTask<>(() -> closed
                 ? error("closing", "Bridge is closing") : handler.apply(request));
             try {
@@ -129,6 +139,7 @@ public final class BridgeServer implements AutoCloseable {
     }
 
     public void close() {
+        if (closed) return;
         closed = true;
         server.stop(0);
         workers.shutdownNow();

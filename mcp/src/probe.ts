@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -8,7 +9,7 @@ for (const [key, value] of Object.entries(process.env)) {
 }
 const transport = new StdioClientTransport({
   command: process.execPath,
-  args: [new URL("./index.ts", import.meta.url).pathname],
+  args: [fileURLToPath(new URL("./index.ts", import.meta.url))],
   env: environment,
   stderr: "inherit",
 });

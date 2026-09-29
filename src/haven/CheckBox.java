@@ -37,6 +37,8 @@ public class CheckBox extends ACheckBox {
     public final Coord loff;
     Text lbl;
 
+    public String label() { return lbl == null ? "" : lbl.text; }
+
     @RName("chk")
     public static class $_ implements Factory {
 	public Widget create(UI ui, Object[] args) {
